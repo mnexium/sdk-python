@@ -33,6 +33,7 @@ from .types import (
     # Chat Completions (advanced)
     ChatMessage,
     MnxOptions,
+    MnxRecordsConfig,
     ChatCompletionOptions,
     ChatCompletionResponse,
     # Resources
@@ -47,6 +48,14 @@ from .types import (
     AgentStateSetOptions,
     SystemPrompt,
     SystemPromptCreateOptions,
+    # Records
+    RecordFieldDef,
+    RecordSchema,
+    RecordSchemaDefineOptions,
+    MnxRecord,
+    RecordInsertOptions,
+    RecordQueryOptions,
+    RecordSearchResult,
     # Stream types
     StreamChunk,
     MemoryEvent,
@@ -84,6 +93,7 @@ __all__ = [
     # Chat Completions (advanced)
     "ChatMessage",
     "MnxOptions",
+    "MnxRecordsConfig",
     "ChatCompletionOptions",
     "ChatCompletionResponse",
     # Resources
@@ -98,6 +108,14 @@ __all__ = [
     "AgentStateSetOptions",
     "SystemPrompt",
     "SystemPromptCreateOptions",
+    # Records
+    "RecordFieldDef",
+    "RecordSchema",
+    "RecordSchemaDefineOptions",
+    "MnxRecord",
+    "RecordInsertOptions",
+    "RecordQueryOptions",
+    "RecordSearchResult",
     # Stream types
     "StreamChunk",
     "MemoryEvent",

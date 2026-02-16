@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 import httpx
 
@@ -23,16 +23,10 @@ from .types import (
     ChatCompletionChoice,
     ChatCompletionUsage,
     MnxResponseData,
-    SystemPrompt,
     SystemPromptCreateOptions,
-    Memory,
     MemoryCreateOptions,
     MemorySearchOptions,
-    MemorySearchResult,
-    Claim,
     ClaimCreateOptions,
-    Profile,
-    AgentState,
     AgentStateSetOptions,
 )
 from .errors import (
@@ -48,6 +42,65 @@ from .streaming import StreamResponse
 DEFAULT_BASE_URL = "https://mnexium.com/api/v1"
 DEFAULT_TIMEOUT = 30.0
 DEFAULT_MAX_RETRIES = 2
+
+if TYPE_CHECKING:
+    from .chat import Chat
+    from .subject import Subject
+
+
+def _as_dict(value: Any) -> Dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _as_list(value: Any) -> List[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _parse_chat_completion_response(raw: Dict[str, Any]) -> ChatCompletionResponse:
+    choices: List[ChatCompletionChoice] = []
+    raw_choices = _as_list(raw.get("choices"))
+    for idx, item in enumerate(raw_choices):
+        choice = _as_dict(item)
+        message = _as_dict(choice.get("message"))
+        choices.append(
+            ChatCompletionChoice(
+                index=int(choice.get("index", idx)),
+                message=ChatMessage(
+                    role=str(message.get("role", "assistant")),
+                    content=str(message.get("content", "")),
+                    name=message.get("name"),
+                    tool_call_id=message.get("tool_call_id"),
+                ),
+                finish_reason=choice.get("finish_reason"),
+            )
+        )
+
+    mnx = _as_dict(raw.get("mnx"))
+    mnx_data = MnxResponseData(
+        chat_id=str(mnx.get("chat_id", "")),
+        subject_id=str(mnx.get("subject_id", "")),
+        provisioned_key=mnx.get("provisioned_key"),
+        claim_url=mnx.get("claim_url"),
+    )
+
+    usage_obj: Optional[ChatCompletionUsage] = None
+    usage = raw.get("usage")
+    if isinstance(usage, dict):
+        usage_obj = ChatCompletionUsage(
+            prompt_tokens=int(usage.get("prompt_tokens", 0)),
+            completion_tokens=int(usage.get("completion_tokens", 0)),
+            total_tokens=int(usage.get("total_tokens", 0)),
+        )
+
+    return ChatCompletionResponse(
+        id=str(raw.get("id", "")),
+        object=str(raw.get("object", "chat.completion")),
+        created=int(raw.get("created", 0)),
+        model=str(raw.get("model", "")),
+        choices=choices,
+        mnx=mnx_data,
+        usage=usage_obj,
+    )
 
 
 class Mnexium:
@@ -81,6 +134,7 @@ class Mnexium:
         self._timeout = timeout if timeout is not None else DEFAULT_TIMEOUT
         self._max_retries = max_retries if max_retries is not None else DEFAULT_MAX_RETRIES
         self._provisioned_key: Optional[str] = None
+        self._http_client = httpx.Client(timeout=self._timeout)
 
         # Provider configurations
         self._openai_config = openai
@@ -107,7 +161,28 @@ class Mnexium:
         )
 
         # Top-level resources
+        self.chat = _ChatResource(self)
+        self.memories = _MemoriesResource(self)
+        self.claims = _ClaimsResource(self)
+        self.state = _StateResource(self)
         self.prompts = _PromptsResource(self)
+        self.records = _RecordsResource(self)
+
+    def close(self) -> None:
+        """Close the underlying HTTP client and release network resources."""
+        self._http_client.close()
+
+    def __enter__(self) -> "Mnexium":
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # process()
@@ -194,6 +269,13 @@ class Mnexium:
                 "system_prompt": system_prompt,
                 "metadata": metadata,
                 "regenerate_key": regenerate_key,
+                **({"records": {
+                    k: v for k, v in {
+                        "recall": options.records.recall,
+                        "learn": options.records.learn,
+                        "types": options.records.types,
+                    }.items() if v is not None
+                }} if options.records else {}),
             },
         }
         if max_tokens is not None:
@@ -216,9 +298,10 @@ class Mnexium:
             )
 
         # Non-streaming path
-        raw = self._request(
+        raw_obj = self._request(
             "POST", "/chat/completions", json=body, headers=extra_headers
         )
+        raw = _as_dict(raw_obj)
 
         content, usage_dict = extract_response_content(raw)
 
@@ -332,14 +415,13 @@ class Mnexium:
 
         for attempt in range(self._max_retries + 1):
             try:
-                with httpx.Client(timeout=self._timeout) as client:
-                    response = client.request(
-                        method,
-                        url,
-                        json=json,
-                        params=params,
-                        headers=request_headers,
-                    )
+                response = self._http_client.request(
+                    method,
+                    url,
+                    json=json,
+                    params=params,
+                    headers=request_headers,
+                )
 
                 # Check for provisioned key
                 provisioned_key = response.headers.get("x-mnx-key-provisioned")
@@ -348,6 +430,14 @@ class Mnexium:
 
                 if not response.is_success:
                     self._handle_error_response(response)
+
+                # Handle 204 No Content and empty bodies safely
+                if response.status_code == 204:
+                    return None
+
+                text = response.text
+                if not text:
+                    return None
 
                 return response.json()
 
@@ -396,9 +486,8 @@ class Mnexium:
         if params:
             params = {k: v for k, v in params.items() if v is not None}
 
-        client = httpx.Client(timeout=self._timeout)
-        response = client.send(
-            client.build_request(
+        response = self._http_client.send(
+            self._http_client.build_request(
                 method,
                 url,
                 json=json,
@@ -454,8 +543,395 @@ class Mnexium:
 
 
 # ------------------------------------------------------------------
+# Top-level chat resource
+# ------------------------------------------------------------------
+
+
+class _ChatCompletionsResource:
+    """Low-level chat completions API — mirrors JS SDK's mnx.chat.completions."""
+
+    def __init__(self, client: Mnexium) -> None:
+        self._client = client
+
+    def create(
+        self, options: ChatCompletionOptions
+    ) -> Union[ChatCompletionResponse, StreamResponse]:
+        """
+        Create a chat completion.
+
+        Returns ChatCompletionResponse for non-streaming, StreamResponse for streaming.
+
+        Example::
+
+            response = mnx.chat.completions.create(ChatCompletionOptions(
+                model="gpt-4o-mini",
+                messages=[ChatMessage(role="user", content="Hello!")],
+            ))
+        """
+        headers: Dict[str, str] = {}
+        if options.openai_key:
+            headers["x-openai-key"] = options.openai_key
+        elif options.anthropic_key:
+            headers["x-anthropic-key"] = options.anthropic_key
+        elif options.google_key:
+            headers["x-google-key"] = options.google_key
+
+        body: Dict[str, Any] = {
+            "model": options.model,
+            "messages": [
+                m.to_dict() if isinstance(m, ChatMessage) else m
+                for m in options.messages
+            ],
+            "stream": options.stream,
+            "mnx": {
+                k: v
+                for k, v in {
+                    "subject_id": options.subject_id,
+                    "chat_id": options.chat_id,
+                    "learn": options.learn,
+                    "recall": options.recall,
+                    "history": options.history,
+                    "log": options.log,
+                    "system_prompt": options.system_prompt,
+                    "metadata": options.metadata,
+                    "regenerate_key": options.regenerate_key,
+                    **(
+                        {
+                            "records": {
+                                rk: rv
+                                for rk, rv in {
+                                    "recall": options.records.recall,
+                                    "learn": options.records.learn,
+                                    "types": options.records.types,
+                                }.items()
+                                if rv is not None
+                            }
+                        }
+                        if options.records
+                        else {}
+                    ),
+                }.items()
+                if v is not None
+            },
+        }
+        if options.max_tokens is not None:
+            body["max_tokens"] = options.max_tokens
+        if options.temperature is not None:
+            body["temperature"] = options.temperature
+        if options.top_p is not None:
+            body["top_p"] = options.top_p
+        if options.stop is not None:
+            body["stop"] = options.stop
+
+        # Streaming path
+        if options.stream:
+            response = self._client._request_raw(
+                "POST", "/chat/completions", json=body, headers=headers
+            )
+            return StreamResponse(
+                response,
+                chat_id=response.headers.get("x-mnx-chat-id") or options.chat_id or "",
+                subject_id=response.headers.get("x-mnx-subject-id") or options.subject_id or "",
+                model=options.model,
+                provisioned_key=response.headers.get("x-mnx-key-provisioned") or None,
+                claim_url=response.headers.get("x-mnx-claim-url") or None,
+            )
+
+        # Non-streaming path
+        raw = _as_dict(
+            self._client._request("POST", "/chat/completions", json=body, headers=headers)
+        )
+        return _parse_chat_completion_response(raw)
+
+
+class _ChatResource:
+    """Chat resource — exposes chat.completions."""
+
+    def __init__(self, client: Mnexium) -> None:
+        self.completions = _ChatCompletionsResource(client)
+
+
+# ------------------------------------------------------------------
+# Top-level memories resource
+# ------------------------------------------------------------------
+
+
+class _MemoriesResource:
+    """Top-level memories management — matches backend contracts."""
+
+    def __init__(self, client: Mnexium) -> None:
+        self._client = client
+
+    def create(self, options: MemoryCreateOptions) -> Any:
+        """Create a memory."""
+        return self._client._request(
+            "POST",
+            "/memories",
+            json={
+                "subject_id": options.subject_id,
+                "text": options.text,
+                "source": options.source,
+                "visibility": options.visibility,
+                "metadata": options.metadata,
+            },
+        )
+
+    def get(self, id: str) -> Any:
+        """Get a memory by ID."""
+        return self._client._request("GET", f"/memories/{id}")
+
+    def list(
+        self,
+        subject_id: str,
+        *,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+    ) -> List[Any]:
+        """List memories for a subject."""
+        response = self._client._request(
+            "GET",
+            "/memories",
+            params={
+                "subject_id": subject_id,
+                "limit": limit,
+                "offset": offset,
+            },
+        )
+        return _as_list(_as_dict(response).get("data"))
+
+    def search(self, options: MemorySearchOptions) -> List[Any]:
+        """Search memories using the recall pipeline."""
+        response = self._client._request(
+            "GET",
+            "/memories/search",
+            params={
+                "subject_id": options.subject_id,
+                "q": options.query,
+                "limit": options.limit,
+                "min_score": options.min_score,
+            },
+        )
+        return _as_list(_as_dict(response).get("data"))
+
+    def delete(self, id: str) -> None:
+        """Delete a memory."""
+        self._client._request("DELETE", f"/memories/{id}")
+
+
+# ------------------------------------------------------------------
+# Top-level claims resource
+# ------------------------------------------------------------------
+
+
+class _ClaimsResource:
+    """Top-level claims management."""
+
+    def __init__(self, client: Mnexium) -> None:
+        self._client = client
+
+    def create(self, options: ClaimCreateOptions) -> Any:
+        """Create a claim."""
+        return self._client._request(
+            "POST",
+            "/claims",
+            json={
+                "subject_id": options.subject_id,
+                "slot": options.slot,
+                "value": options.value,
+                "confidence": options.confidence,
+                "source": options.source,
+                "source_memory_id": options.source_memory_id,
+            },
+        )
+
+    def get(self, id: str) -> Any:
+        """Get a claim by ID."""
+        return self._client._request("GET", f"/claims/{id}")
+
+    def get_by_slot(self, subject_id: str, slot: str) -> Optional[Any]:
+        """Get a claim by subject and slot. Returns None if not found."""
+        try:
+            return self._client._request(
+                "GET", f"/claims/subject/{subject_id}/slot/{slot}"
+            )
+        except NotFoundError:
+            return None
+
+    def list_slots(self, subject_id: str) -> Dict[str, Any]:
+        """List all claim slots for a subject."""
+        return _as_dict(self._client._request(
+            "GET", f"/claims/subject/{subject_id}/slots"
+        ))
+
+    def retract(self, id: str) -> None:
+        """Retract a claim."""
+        self._client._request("POST", f"/claims/{id}/retract")
+
+
+# ------------------------------------------------------------------
+# Top-level state resource
+# ------------------------------------------------------------------
+
+
+class _StateResource:
+    """Top-level agent state management — uses x-subject-id header per backend contract."""
+
+    def __init__(self, client: Mnexium) -> None:
+        self._client = client
+
+    def get(self, key: str, subject_id: Optional[str] = None) -> Optional[Any]:
+        """Get state by key. Returns None if not found."""
+        try:
+            return self._client._request(
+                "GET",
+                f"/state/{key}",
+                headers={"x-subject-id": subject_id} if subject_id else None,
+            )
+        except NotFoundError:
+            return None
+
+    def set(self, options: AgentStateSetOptions) -> Any:
+        """Set state."""
+        headers: Dict[str, str] = {}
+        if options.subject_id:
+            headers["x-subject-id"] = options.subject_id
+        return self._client._request(
+            "PUT",
+            f"/state/{options.key}",
+            headers=headers or None,
+            json={
+                "value": options.value,
+                "ttl_seconds": options.ttl_seconds,
+            },
+        )
+
+    def delete(self, key: str, subject_id: Optional[str] = None) -> None:
+        """Delete state."""
+        self._client._request(
+            "DELETE",
+            f"/state/{key}",
+            headers={"x-subject-id": subject_id} if subject_id else None,
+        )
+
+
+# ------------------------------------------------------------------
 # Top-level prompts resource (not subject-scoped)
 # ------------------------------------------------------------------
+
+
+class _RecordsResource:
+    """Records management — structured data with schemas, CRUD, query, and semantic search."""
+
+    def __init__(self, client: Mnexium) -> None:
+        self._client = client
+
+    def define_schema(
+        self,
+        type_name: str,
+        fields: Dict[str, Any],
+        *,
+        display_name: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> Any:
+        """Define or update a record schema."""
+        return self._client._request(
+            "POST",
+            "/records/schemas",
+            json={
+                "type_name": type_name,
+                "fields": fields,
+                "display_name": display_name,
+                "description": description,
+            },
+        )
+
+    def get_schema(self, type_name: str) -> Optional[Any]:
+        """Get a schema by type name."""
+        try:
+            return self._client._request("GET", f"/records/schemas/{type_name}")
+        except NotFoundError:
+            return None
+
+    def list_schemas(self) -> List[Any]:
+        """List all schemas for the project."""
+        response = self._client._request("GET", "/records/schemas")
+        return _as_list(_as_dict(response).get("schemas"))
+
+    def insert(
+        self,
+        type_name: str,
+        data: Dict[str, Any],
+        *,
+        owner_id: Optional[str] = None,
+        visibility: Optional[str] = None,
+        collaborators: Optional[List[str]] = None,
+    ) -> Any:
+        """Insert a new record."""
+        body: Dict[str, Any] = {"data": data}
+        if owner_id is not None:
+            body["owner_id"] = owner_id
+        if visibility is not None:
+            body["visibility"] = visibility
+        if collaborators is not None:
+            body["collaborators"] = collaborators
+        return self._client._request("POST", f"/records/{type_name}", json=body)
+
+    def get(self, type_name: str, record_id: str) -> Optional[Any]:
+        """Get a record by ID."""
+        try:
+            return self._client._request("GET", f"/records/{type_name}/{record_id}")
+        except NotFoundError:
+            return None
+
+    def update(self, type_name: str, record_id: str, data: Dict[str, Any]) -> Any:
+        """Update a record (partial merge)."""
+        return self._client._request(
+            "PUT", f"/records/{type_name}/{record_id}", json={"data": data}
+        )
+
+    def delete(self, type_name: str, record_id: str) -> None:
+        """Soft-delete a record."""
+        self._client._request("DELETE", f"/records/{type_name}/{record_id}")
+
+    def query(
+        self,
+        type_name: str,
+        *,
+        where: Optional[Dict[str, Any]] = None,
+        order_by: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+    ) -> List[Any]:
+        """Query records with JSONB filters."""
+        body: Dict[str, Any] = {}
+        if where is not None:
+            body["where"] = where
+        if order_by is not None:
+            body["order_by"] = order_by
+        if limit is not None:
+            body["limit"] = limit
+        if offset is not None:
+            body["offset"] = offset
+        response = self._client._request(
+            "POST", f"/records/{type_name}/query", json=body
+        )
+        return _as_list(_as_dict(response).get("records"))
+
+    def search(
+        self,
+        type_name: str,
+        query: str,
+        *,
+        limit: Optional[int] = None,
+    ) -> List[Any]:
+        """Semantic search across records."""
+        body: Dict[str, Any] = {"query": query}
+        if limit is not None:
+            body["limit"] = limit
+        response = self._client._request(
+            "POST", f"/records/{type_name}/search", json=body
+        )
+        return _as_list(_as_dict(response).get("records"))
 
 
 class _PromptsResource:
@@ -475,7 +951,9 @@ class _PromptsResource:
                 "is_default": options.is_default,
             },
         )
-        return response.get("prompt", response)
+        data = _as_dict(response)
+        prompt = data.get("prompt")
+        return prompt if prompt is not None else data
 
     def get(self, id: str) -> Any:
         """Get a system prompt."""
@@ -484,7 +962,7 @@ class _PromptsResource:
     def list(self) -> List[Any]:
         """List system prompts."""
         response = self._client._request("GET", "/prompts")
-        return response.get("prompts", [])
+        return _as_list(_as_dict(response).get("prompts"))
 
     def update(
         self,

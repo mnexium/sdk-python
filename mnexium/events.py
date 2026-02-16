@@ -16,7 +16,7 @@ Events:
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, Iterator, Optional
+from typing import TYPE_CHECKING, Any, Iterator
 
 from .types import MemoryEvent
 

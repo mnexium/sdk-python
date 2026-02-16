@@ -2,6 +2,8 @@
 Mnexium SDK Errors
 """
 
+from typing import Optional
+
 
 class MnexiumError(Exception):
     """Base exception for Mnexium SDK."""
@@ -21,8 +23,8 @@ class RateLimitError(MnexiumError):
     def __init__(
         self,
         message: str = "Rate limit exceeded",
-        current: int | None = None,
-        limit: int | None = None,
+        current: Optional[int] = None,
+        limit: Optional[int] = None,
     ):
         super().__init__(message)
         self.current = current
@@ -32,7 +34,7 @@ class RateLimitError(MnexiumError):
 class APIError(MnexiumError):
     """API error."""
     
-    def __init__(self, message: str, status: int, code: str | None = None):
+    def __init__(self, message: str, status: int, code: Optional[str] = None):
         super().__init__(message)
         self.status = status
         self.code = code

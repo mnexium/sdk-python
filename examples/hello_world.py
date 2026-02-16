@@ -11,9 +11,11 @@ Run with: python hello_world.py
 """
 
 import os
-import sys
-
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv() -> bool:
+        return False
 
 load_dotenv()
 
@@ -23,9 +25,8 @@ from mnexium import Mnexium, ProviderConfig, ChatOptions, AuthenticationError
 def main():
     openai_key = os.environ.get("OPENAI_API_KEY")
     if not openai_key:
-        print("❌ OPENAI_API_KEY environment variable is required")
-        print("   Add OPENAI_API_KEY=sk-... to your .env file")
-        sys.exit(1)
+        print("⏭️  Skipping: OPENAI_API_KEY not set")
+        return
 
     mnx = Mnexium(
         api_key=os.environ.get("MNX_KEY"),

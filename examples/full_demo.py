@@ -15,9 +15,11 @@ Run with: python full_demo.py
 """
 
 import os
-import sys
-
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv() -> bool:
+        return False
 
 load_dotenv()
 
@@ -32,8 +34,8 @@ from mnexium import (
 def main():
     openai_key = os.environ.get("OPENAI_API_KEY")
     if not openai_key:
-        print("❌ OPENAI_API_KEY required in .env")
-        sys.exit(1)
+        print("⏭️  Skipping: OPENAI_API_KEY not set")
+        return
 
     mnx = Mnexium(
         api_key=os.environ.get("MNX_KEY"),

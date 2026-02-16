@@ -88,6 +88,7 @@ class ProcessOptions:
     stream: Optional[bool] = None
     metadata: Optional[Dict[str, Any]] = None
     regenerate_key: Optional[bool] = None
+    records: Optional["MnxRecordsConfig"] = None
 
 
 @dataclass
@@ -131,6 +132,7 @@ class ChatProcessOptions:
     stream: Optional[bool] = None
     metadata: Optional[Dict[str, Any]] = None
     regenerate_key: Optional[bool] = None
+    records: Optional["MnxRecordsConfig"] = None
 
 
 # ============================================================
@@ -181,6 +183,15 @@ class ChatMessage:
 
 
 @dataclass
+class MnxRecordsConfig:
+    """Records configuration for chat requests."""
+
+    recall: Optional[bool] = None
+    learn: Optional[Union[bool, str]] = None  # True = async, "sync" = await and return results
+    types: Optional[List[str]] = None
+
+
+@dataclass
 class MnxOptions:
     """Mnexium-specific options for requests."""
 
@@ -193,6 +204,7 @@ class MnxOptions:
     system_prompt: Optional[Union[bool, str]] = None
     metadata: Optional[Dict[str, Any]] = None
     regenerate_key: Optional[bool] = None
+    records: Optional[MnxRecordsConfig] = None
 
 
 @dataclass
@@ -219,6 +231,7 @@ class ChatCompletionOptions:
     system_prompt: Optional[Union[bool, str]] = None
     metadata: Optional[Dict[str, Any]] = None
     regenerate_key: Optional[bool] = None
+    records: Optional[MnxRecordsConfig] = None
 
 
 @dataclass
@@ -418,6 +431,88 @@ class SystemPromptCreateOptions:
     name: str
     prompt_text: str
     is_default: bool = False
+
+
+# ============================================================
+# Records
+# ============================================================
+
+
+@dataclass
+class RecordFieldDef:
+    """A field definition within a record schema."""
+
+    type: str
+    required: bool = False
+    description: Optional[str] = None
+    display_name: Optional[str] = None
+
+
+@dataclass
+class RecordSchema:
+    """A record schema definition."""
+
+    project_id: str = ""
+    type_name: str = ""
+    fields: Dict[str, Any] = field(default_factory=dict)
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+    created_at: str = ""
+    updated_at: str = ""
+
+
+@dataclass
+class RecordSchemaDefineOptions:
+    """Options for defining a record schema."""
+
+    type_name: str = ""
+    fields: Dict[str, Any] = field(default_factory=dict)
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+
+
+@dataclass
+class MnxRecord:
+    """A record instance."""
+
+    record_id: str = ""
+    project_id: str = ""
+    type_name: str = ""
+    owner_id: Optional[str] = None
+    visibility: str = "public"
+    collaborators: List[str] = field(default_factory=list)
+    data: Dict[str, Any] = field(default_factory=dict)
+    summary_text: Optional[str] = None
+    is_deleted: bool = False
+    created_at: str = ""
+    updated_at: str = ""
+
+
+@dataclass
+class RecordInsertOptions:
+    """Options for inserting a record."""
+
+    data: Dict[str, Any] = field(default_factory=dict)
+    owner_id: Optional[str] = None
+    visibility: Optional[str] = None
+    collaborators: Optional[List[str]] = None
+
+
+@dataclass
+class RecordQueryOptions:
+    """Options for querying records."""
+
+    where: Optional[Dict[str, Any]] = None
+    order_by: Optional[str] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+
+
+@dataclass
+class RecordSearchResult(MnxRecord):
+    """A record search result with similarity score."""
+
+    similarity: float = 0.0
 
 
 # ============================================================

@@ -59,6 +59,9 @@ packages = ["mnexium"]
 line-length = 100
 target-version = "py39"
 
+[tool.ruff.lint.per-file-ignores]
+"examples/*.py" = ["E402"]
+
 [tool.mypy]
 python_version = "3.9"
 strict = true

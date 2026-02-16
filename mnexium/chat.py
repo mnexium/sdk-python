@@ -71,24 +71,30 @@ class Chat:
         else:
             opts = input
 
-        def _pick(per_msg: Optional[object], chat_default: Optional[object]) -> Optional[object]:
-            return per_msg if per_msg is not None else chat_default
-
         return self._client.process(ProcessOptions(
             content=opts.content,
             chat_id=self.id,
             subject_id=self.subject_id,
-            model=_pick(opts.model, self._options.model),
-            log=_pick(opts.log, self._options.log),
-            learn=_pick(opts.learn, self._options.learn),
-            recall=_pick(opts.recall, self._options.recall),
-            profile=_pick(opts.profile, self._options.profile),
-            history=_pick(opts.history, self._options.history),
-            summarize=_pick(opts.summarize, self._options.summarize),
-            system_prompt=_pick(opts.system_prompt, self._options.system_prompt),
-            max_tokens=_pick(opts.max_tokens, self._options.max_tokens),
-            temperature=_pick(opts.temperature, self._options.temperature),
+            model=opts.model if opts.model is not None else self._options.model,
+            log=opts.log if opts.log is not None else self._options.log,
+            learn=opts.learn if opts.learn is not None else self._options.learn,
+            recall=opts.recall if opts.recall is not None else self._options.recall,
+            profile=opts.profile if opts.profile is not None else self._options.profile,
+            history=opts.history if opts.history is not None else self._options.history,
+            summarize=opts.summarize if opts.summarize is not None else self._options.summarize,
+            system_prompt=(
+                opts.system_prompt
+                if opts.system_prompt is not None
+                else self._options.system_prompt
+            ),
+            max_tokens=opts.max_tokens if opts.max_tokens is not None else self._options.max_tokens,
+            temperature=(
+                opts.temperature
+                if opts.temperature is not None
+                else self._options.temperature
+            ),
             stream=opts.stream,
-            metadata=_pick(opts.metadata, self._options.metadata),
+            metadata=opts.metadata if opts.metadata is not None else self._options.metadata,
             regenerate_key=opts.regenerate_key,
+            records=opts.records,
         ))

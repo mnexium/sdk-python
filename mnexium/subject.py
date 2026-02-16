@@ -18,6 +18,15 @@ from .events import EventStream
 if TYPE_CHECKING:
     from .client import Mnexium
     from .chat import Chat
+    from .streaming import StreamResponse
+
+
+def _as_dict(value: Any) -> Dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _as_list(value: Any) -> List[Any]:
+    return value if isinstance(value, list) else []
 
 
 # ------------------------------------------------------------------
@@ -50,7 +59,7 @@ class SubjectMemoriesResource:
                 "min_score": min_score,
             },
         )
-        return response.get("data", [])
+        return _as_list(_as_dict(response).get("data"))
 
     def add(
         self,
@@ -59,18 +68,22 @@ class SubjectMemoriesResource:
         source: Optional[str] = None,
         visibility: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        no_supersede: Optional[bool] = None,
     ) -> Any:
         """Add a memory."""
+        body: Dict[str, Any] = {
+            "subject_id": self._subject_id,
+            "text": text,
+            "source": source,
+            "visibility": visibility,
+            "metadata": metadata,
+        }
+        if no_supersede is not None:
+            body["no_supersede"] = no_supersede
         return self._client._request(
             "POST",
             "/memories",
-            json={
-                "subject_id": self._subject_id,
-                "text": text,
-                "source": source,
-                "visibility": visibility,
-                "metadata": metadata,
-            },
+            json=body,
         )
 
     def list(
@@ -89,7 +102,7 @@ class SubjectMemoriesResource:
                 "offset": offset,
             },
         )
-        return response.get("data", [])
+        return _as_list(_as_dict(response).get("data"))
 
     def get(self, memory_id: str) -> Any:
         """Get a specific memory."""
@@ -133,7 +146,7 @@ class SubjectMemoriesResource:
                 "offset": offset,
             },
         )
-        return response.get("data", [])
+        return _as_list(_as_dict(response).get("data"))
 
     def restore(self, memory_id: str) -> Any:
         """Restore a superseded memory."""
@@ -154,7 +167,7 @@ class SubjectMemoriesResource:
                 "memory_id": memory_id,
             },
         )
-        return response.get("data", [])
+        return _as_list(_as_dict(response).get("data"))
 
     def subscribe(self) -> EventStream:
         """Subscribe to real-time memory events via SSE."""
@@ -308,10 +321,10 @@ class SubjectClaimsResource:
 
     def list(self) -> Dict[str, Any]:
         """List all claim slots."""
-        return self._client._request(
+        return _as_dict(self._client._request(
             "GET",
             f"/claims/subject/{self._subject_id}/slots",
-        )
+        ))
 
     def truth(self) -> Any:
         """Get current truth (all active values)."""
@@ -326,7 +339,8 @@ class SubjectClaimsResource:
             "GET",
             f"/claims/subject/{self._subject_id}/history",
         )
-        return response.get("data") or response.get("claims") or []
+        data = _as_dict(response)
+        return _as_list(data.get("data")) or _as_list(data.get("claims"))
 
     def retract(self, claim_id: str) -> Any:
         """Retract a claim."""
@@ -357,7 +371,7 @@ class SubjectChatsResource:
                 "offset": opts.offset,
             },
         )
-        chats = response.get("chats", [])
+        chats = _as_list(_as_dict(response).get("chats"))
         return [
             ChatHistoryItem(
                 chat_id=c.get("chat_id", ""),
@@ -379,7 +393,7 @@ class SubjectChatsResource:
                 "chat_id": chat_id,
             },
         )
-        return response.get("data", [])
+        return _as_list(_as_dict(response).get("data"))
 
     def delete(self, chat_id: str) -> None:
         """Delete a chat."""
@@ -423,7 +437,7 @@ class Subject:
 
     def process(
         self, input: Union[str, ProcessOptions]
-    ) -> ProcessResponse:
+    ) -> Union[ProcessResponse, StreamResponse]:
         """
         Process a message with an ephemeral chat (no persistent chat_id).
 
