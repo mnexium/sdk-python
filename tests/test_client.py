@@ -12,6 +12,7 @@ from mnexium import Mnexium
 from mnexium.types import (
     ChatCompletionOptions,
     ChatMessage,
+    MnxRecordsConfig,
     ProcessOptions,
     MemorySearchOptions,
     AgentStateSetOptions,
@@ -244,6 +245,92 @@ class TestMemoryPolicyOverride:
             assert json_body.get("mnx", {}).get("memory_policy") is False
             headers = kwargs.get("headers", {})
             assert headers.get("x-mnx-memory-policy") == "false"
+
+
+class TestRecordsControls:
+    def test_process_serializes_records_config(self):
+        mnx = Mnexium(api_key="test-key", max_retries=0)
+        body = {
+            "choices": [{"message": {"content": "ok"}}],
+            "mnx": {"chat_id": "c1", "subject_id": "s1"},
+            "model": "gpt-4o-mini",
+        }
+        mock_resp = _mock_response(json_body=body)
+
+        with patch.object(mnx._http_client, "request", return_value=mock_resp) as mock_req:
+            mnx.process(
+                ProcessOptions(
+                    content="extract and save",
+                    records=MnxRecordsConfig(
+                        learn="force",
+                        tables=["receipts", "vendors"],
+                        sync=True,
+                        recall=True,
+                    ),
+                )
+            )
+
+            call_args = mock_req.call_args
+            json_body = call_args[1].get("json", {})
+            assert json_body.get("mnx", {}).get("records") == {
+                "learn": "force",
+                "tables": ["receipts", "vendors"],
+                "sync": True,
+                "recall": True,
+            }
+
+    def test_chat_completions_serializes_records_config(self):
+        mnx = Mnexium(api_key="test-key", max_retries=0)
+        body = {
+            "id": "chatcmpl-1",
+            "object": "chat.completion",
+            "created": 1234567890,
+            "model": "gpt-4o-mini",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Hi!"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "mnx": {"chat_id": "c1", "subject_id": "s1"},
+        }
+        mock_resp = _mock_response(json_body=body)
+
+        with patch.object(mnx._http_client, "request", return_value=mock_resp) as mock_req:
+            mnx.chat.completions.create(
+                ChatCompletionOptions(
+                    model="gpt-4o-mini",
+                    messages=[ChatMessage(role="user", content="extract and save")],
+                    records=MnxRecordsConfig(
+                        learn="auto",
+                        tables=["orders"],
+                        sync=True,
+                    ),
+                )
+            )
+
+            call_args = mock_req.call_args
+            json_body = call_args[1].get("json", {})
+            assert json_body.get("mnx", {}).get("records") == {
+                "learn": "auto",
+                "tables": ["orders"],
+                "sync": True,
+            }
+
+    def test_process_response_includes_records_metadata(self):
+        mnx = Mnexium(api_key="test-key", max_retries=0)
+        records_result = {"mode": "sync", "writes": [{"table": "orders", "id": "rec_123"}]}
+        body = {
+            "choices": [{"message": {"content": "ok"}}],
+            "mnx": {"chat_id": "c1", "subject_id": "s1", "records": records_result},
+            "model": "gpt-4o-mini",
+        }
+        mock_resp = _mock_response(json_body=body)
+
+        with patch.object(mnx._http_client, "request", return_value=mock_resp):
+            response = mnx.process(ProcessOptions(content="extract"))
+            assert response.records == records_result
 
 
 # ---------------------------------------------------------------

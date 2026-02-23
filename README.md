@@ -390,8 +390,30 @@ Every `process()` and `chat.process()` call supports these options:
 | `log` | bool | `True` | Save messages to chat history |
 | `summarize` | bool/str | `False` | `"light"`, `"balanced"`, or `"aggressive"` |
 | `system_prompt` | bool/str | `True` | `True` (auto), `False` (skip), or prompt ID |
+| `memory_policy` | str/bool | — | Policy ID string, or `False` to disable policy for this request |
+| `records` | object | — | Records controls: `learn: "force" | "auto" | False`, `tables: list[str]`, `sync: bool`, `recall: bool` |
 | `stream` | bool | `False` | Enable streaming response |
 | `metadata` | dict | — | Custom metadata attached to saved logs |
+
+Records extraction controls:
+
+```python
+from mnexium.types import ProcessOptions, MnxRecordsConfig
+
+response = mnx.process(
+    ProcessOptions(
+        content="Extract and save order details",
+        records=MnxRecordsConfig(
+            learn="force",         # "force" | "auto" | False
+            tables=["orders"],     # Optional allowlist
+            sync=True,             # Wait for write completion
+            recall=True,           # Include prior records in context
+        ),
+    )
+)
+
+print(response.records)  # Sync extraction metadata (when returned by backend)
+```
 
 ## Trial Keys
 

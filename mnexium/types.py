@@ -5,7 +5,7 @@ Mnexium SDK Types
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 
 # ============================================================
@@ -39,6 +39,7 @@ class MnexiumDefaults:
     max_tokens: Optional[int] = None
     temperature: Optional[float] = None
     regenerate_key: Optional[bool] = None
+    records: Optional["MnxRecordsConfig"] = None
 
 
 # ============================================================
@@ -63,6 +64,7 @@ class ChatOptions:
     temperature: Optional[float] = None
     metadata: Optional[Dict[str, Any]] = None
     memory_policy: Optional[Union[str, bool]] = None
+    records: Optional["MnxRecordsConfig"] = None
 
 
 # ============================================================
@@ -114,6 +116,7 @@ class ProcessResponse:
     usage: Optional[UsageInfo] = None
     provisioned_key: Optional[str] = None
     claim_url: Optional[str] = None
+    records: Optional[Any] = None
     raw: Optional[Any] = None
 
 
@@ -191,8 +194,9 @@ class MnxRecordsConfig:
     """Records configuration for chat requests."""
 
     recall: Optional[bool] = None
-    learn: Optional[Union[bool, str]] = None  # True = async, "sync" = await and return results
-    types: Optional[List[str]] = None
+    learn: Optional[Union[Literal["force"], Literal["auto"], Literal[False]]] = None
+    sync: Optional[bool] = None
+    tables: Optional[List[str]] = None
 
 
 @dataclass
@@ -266,6 +270,7 @@ class MnxResponseData:
     subject_id: str
     provisioned_key: Optional[str] = None
     claim_url: Optional[str] = None
+    records: Optional[Any] = None
 
 
 @dataclass

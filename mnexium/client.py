@@ -77,6 +77,31 @@ def _apply_memory_policy_header(
         headers["x-mnx-memory-policy"] = normalized
 
 
+def _build_records_payload(records: Any) -> Optional[Dict[str, Any]]:
+    if records is None:
+        return None
+
+    if isinstance(records, dict):
+        source = records
+        payload: Dict[str, Any] = {}
+        for key in ("recall", "learn", "sync", "tables"):
+            if key in source and source[key] is not None:
+                payload[key] = source[key]
+        return payload
+
+    payload = {
+        key: value
+        for key, value in {
+            "recall": getattr(records, "recall", None),
+            "learn": getattr(records, "learn", None),
+            "sync": getattr(records, "sync", None),
+            "tables": getattr(records, "tables", None),
+        }.items()
+        if value is not None
+    }
+    return payload
+
+
 def _parse_chat_completion_response(raw: Dict[str, Any]) -> ChatCompletionResponse:
     choices: List[ChatCompletionChoice] = []
     raw_choices = _as_list(raw.get("choices"))
@@ -102,6 +127,7 @@ def _parse_chat_completion_response(raw: Dict[str, Any]) -> ChatCompletionRespon
         subject_id=str(mnx.get("subject_id", "")),
         provisioned_key=mnx.get("provisioned_key"),
         claim_url=mnx.get("claim_url"),
+        records=mnx.get("records"),
     )
 
     usage_obj: Optional[ChatCompletionUsage] = None
@@ -180,6 +206,7 @@ class Mnexium:
             max_tokens=d.max_tokens,
             temperature=d.temperature,
             regenerate_key=d.regenerate_key,
+            records=d.records,
         )
 
         # Top-level resources
@@ -262,6 +289,8 @@ class Mnexium:
         max_tokens = _val(options.max_tokens, self._defaults.max_tokens)
         temperature = options.temperature if options.temperature is not None else self._defaults.temperature
         regenerate_key = _val(options.regenerate_key, self._defaults.regenerate_key, False)
+        records_config = options.records if options.records is not None else self._defaults.records
+        records_payload = _build_records_payload(records_config)
 
         # Provider headers
         extra_headers: Dict[str, str] = {}
@@ -297,13 +326,7 @@ class Mnexium:
                 "metadata": metadata,
                 **({"memory_policy": memory_policy} if memory_policy is not None else {}),
                 "regenerate_key": regenerate_key,
-                **({"records": {
-                    k: v for k, v in {
-                        "recall": options.records.recall,
-                        "learn": options.records.learn,
-                        "types": options.records.types,
-                    }.items() if v is not None
-                }} if options.records else {}),
+                **({"records": records_payload} if records_payload is not None else {}),
             },
         }
         if max_tokens is not None:
@@ -350,6 +373,7 @@ class Mnexium:
             usage=usage,
             provisioned_key=mnx_data.get("provisioned_key"),
             claim_url=mnx_data.get("claim_url"),
+            records=mnx_data.get("records"),
             raw=raw,
         )
 
@@ -606,6 +630,7 @@ class _ChatCompletionsResource:
 
         memory_policy = _normalize_memory_policy(options.memory_policy)
         _apply_memory_policy_header(headers, memory_policy)
+        records_payload = _build_records_payload(options.records)
 
         body: Dict[str, Any] = {
             "model": options.model,
@@ -627,21 +652,7 @@ class _ChatCompletionsResource:
                     "metadata": options.metadata,
                     "memory_policy": memory_policy,
                     "regenerate_key": options.regenerate_key,
-                    **(
-                        {
-                            "records": {
-                                rk: rv
-                                for rk, rv in {
-                                    "recall": options.records.recall,
-                                    "learn": options.records.learn,
-                                    "types": options.records.types,
-                                }.items()
-                                if rv is not None
-                            }
-                        }
-                        if options.records
-                        else {}
-                    ),
+                    **({"records": records_payload} if records_payload is not None else {}),
                 }.items()
                 if v is not None
             },

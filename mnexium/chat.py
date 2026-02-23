@@ -101,5 +101,5 @@ class Chat:
                 else self._options.memory_policy
             ),
             regenerate_key=opts.regenerate_key,
-            records=opts.records,
+            records=opts.records if opts.records is not None else self._options.records,
         ))
