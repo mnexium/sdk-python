@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mnexium"
-version = "0.1.0"
+version = "0.2.0"
 description = "Official Mnexium SDK for Python - Add memory to your AI applications"
 readme = "README.md"
 license = "MIT"

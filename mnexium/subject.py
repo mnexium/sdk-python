@@ -215,7 +215,7 @@ class SubjectProfileResource:
         self._client._request(
             "DELETE",
             "/profiles",
-            json={
+            params={
                 "subject_id": self._subject_id,
                 "field_key": field_key,
             },

@@ -35,6 +35,7 @@ class MnexiumDefaults:
     summarize: Optional[Union[bool, str]] = None  # bool or "light"/"balanced"/"aggressive"
     system_prompt: Optional[Union[bool, str]] = None  # bool or prompt ID
     metadata: Optional[Dict[str, Any]] = None
+    memory_policy: Optional[Union[str, bool]] = None  # string policy ID or False
     max_tokens: Optional[int] = None
     temperature: Optional[float] = None
     regenerate_key: Optional[bool] = None
@@ -61,6 +62,7 @@ class ChatOptions:
     max_tokens: Optional[int] = None
     temperature: Optional[float] = None
     metadata: Optional[Dict[str, Any]] = None
+    memory_policy: Optional[Union[str, bool]] = None
 
 
 # ============================================================
@@ -87,6 +89,7 @@ class ProcessOptions:
     temperature: Optional[float] = None
     stream: Optional[bool] = None
     metadata: Optional[Dict[str, Any]] = None
+    memory_policy: Optional[Union[str, bool]] = None
     regenerate_key: Optional[bool] = None
     records: Optional["MnxRecordsConfig"] = None
 
@@ -131,6 +134,7 @@ class ChatProcessOptions:
     temperature: Optional[float] = None
     stream: Optional[bool] = None
     metadata: Optional[Dict[str, Any]] = None
+    memory_policy: Optional[Union[str, bool]] = None
     regenerate_key: Optional[bool] = None
     records: Optional["MnxRecordsConfig"] = None
 
@@ -203,6 +207,7 @@ class MnxOptions:
     log: Optional[bool] = None
     system_prompt: Optional[Union[bool, str]] = None
     metadata: Optional[Dict[str, Any]] = None
+    memory_policy: Optional[Union[str, bool]] = None
     regenerate_key: Optional[bool] = None
     records: Optional[MnxRecordsConfig] = None
 
@@ -230,6 +235,7 @@ class ChatCompletionOptions:
     log: Optional[bool] = None
     system_prompt: Optional[Union[bool, str]] = None
     metadata: Optional[Dict[str, Any]] = None
+    memory_policy: Optional[Union[str, bool]] = None
     regenerate_key: Optional[bool] = None
     records: Optional[MnxRecordsConfig] = None
 

@@ -97,6 +97,30 @@ stream2 = chat.process(ChatProcessOptions(content="Summarize", stream=True))
 text = stream2.text()
 ```
 
+### Memory Policy Override
+
+Override memory extraction policy per request:
+
+```python
+from mnexium import ChatProcessOptions
+
+# Use a specific memory policy ID
+chat.process(ChatProcessOptions(
+    content="Plan a trip for me",
+    memory_policy="mpol_abc123",
+))
+
+# Disable memory policy for this request
+chat.process(ChatProcessOptions(
+    content="Do not learn from this",
+    memory_policy=False,
+))
+```
+
+For advanced/low-level calls, the SDK also sends header fallback:
+- `x-mnx-memory-policy: false` when `memory_policy=False`
+- `x-mnx-memory-policy: <policy_id>` when `memory_policy` is a string
+
 ### Multi-Provider Support
 
 The SDK auto-detects the provider from the model name:
@@ -115,6 +139,27 @@ chat = alice.create_chat(ChatOptions(learn=True, recall=True))
 chat.process(ChatProcessOptions(content="I love hiking", model="gpt-4o-mini"))
 chat.process(ChatProcessOptions(content="What do I love?", model="claude-sonnet-4-20250514"))
 chat.process(ChatProcessOptions(content="Tell me my hobbies", model="gemini-2.0-flash"))
+```
+
+### Records
+
+Records are project-level structured entities (for example `account`, `deal`, `ticket`) with typed schemas, CRUD, filtering, and semantic search.
+
+```python
+# Define a schema once
+mnx.records.define_schema(
+    "account",
+    {
+        "name": {"type": "string", "required": True},
+        "industry": {"type": "string"},
+        "arr": {"type": "number"},
+    },
+    display_name="Account",
+    description="Business accounts",
+)
+
+# Insert structured records
+record = mnx.records.insert("account", {"name": "TechCorp", "arr": 5000000})
 ```
 
 ## API Reference
@@ -265,6 +310,47 @@ chat = alice.create_chat(ChatOptions(system_prompt=prompt["id"]))
 
 # Delete a prompt
 mnx.prompts.delete(prompt["id"])
+```
+
+### Records
+
+```python
+# Define or update a schema
+mnx.records.define_schema(
+    "deal",
+    {
+        "title": {"type": "string", "required": True},
+        "value": {"type": "number"},
+        "stage": {"type": "string"},
+    },
+)
+
+# Get one schema / list all schemas
+schema = mnx.records.get_schema("deal")
+schemas = mnx.records.list_schemas()
+
+# Insert
+deal = mnx.records.insert("deal", {"title": "Enterprise Renewal", "value": 250000})
+
+# Get by ID
+fetched = mnx.records.get("deal", deal["record_id"])
+
+# Partial update
+updated = mnx.records.update("deal", deal["record_id"], {"stage": "closed_won"})
+
+# Structured query
+rows = mnx.records.query(
+    "deal",
+    where={"stage": "closed_won"},
+    order_by="-value",
+    limit=10,
+)
+
+# Semantic search
+hits = mnx.records.search("deal", "enterprise renewal", limit=5)
+
+# Delete
+mnx.records.delete("deal", deal["record_id"])
 ```
 
 ## Configuration

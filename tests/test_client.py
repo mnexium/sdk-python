@@ -12,6 +12,7 @@ from mnexium import Mnexium
 from mnexium.types import (
     ChatCompletionOptions,
     ChatMessage,
+    ProcessOptions,
     MemorySearchOptions,
     AgentStateSetOptions,
 )
@@ -147,6 +148,102 @@ class TestChatCompletionsCreate:
                 )
             )
             assert result.choices[0].message.content == "Hi!"
+
+
+class TestMemoryPolicyOverride:
+    def test_process_non_stream_includes_memory_policy_body_and_header(self):
+        mnx = Mnexium(api_key="test-key", max_retries=0)
+        body = {
+            "choices": [{"message": {"content": "ok"}}],
+            "mnx": {"chat_id": "c1", "subject_id": "s1"},
+            "model": "gpt-4o-mini",
+        }
+        mock_resp = _mock_response(json_body=body)
+
+        with patch.object(mnx._http_client, "request", return_value=mock_resp) as mock_req:
+            mnx.process(ProcessOptions(content="hi", memory_policy="mpol_123"))
+
+            call_args = mock_req.call_args
+            json_body = call_args[1].get("json", {})
+            assert json_body.get("mnx", {}).get("memory_policy") == "mpol_123"
+            headers = call_args[1].get("headers", {})
+            assert headers.get("x-mnx-memory-policy") == "mpol_123"
+
+    def test_process_stream_false_memory_policy_sets_false_header_and_body(self):
+        mnx = Mnexium(api_key="test-key", max_retries=0)
+        mock_resp = _mock_streaming_response(
+            chunks=["data: [DONE]\\n\\n"],
+            headers={"x-mnx-chat-id": "c1", "x-mnx-subject-id": "s1"},
+        )
+
+        with patch.object(mnx._http_client, "build_request") as mock_build, patch.object(
+            mnx._http_client, "send", return_value=mock_resp
+        ):
+            mnx.process(ProcessOptions(content="hi", stream=True, memory_policy=False))
+
+            _, kwargs = mock_build.call_args
+            json_body = kwargs.get("json", {})
+            assert json_body.get("mnx", {}).get("memory_policy") is False
+            headers = kwargs.get("headers", {})
+            assert headers.get("x-mnx-memory-policy") == "false"
+
+    def test_chat_completions_non_stream_includes_memory_policy_body_and_header(self):
+        mnx = Mnexium(api_key="test-key", max_retries=0)
+        body = {
+            "id": "chatcmpl-1",
+            "object": "chat.completion",
+            "created": 1234567890,
+            "model": "gpt-4o-mini",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "Hi!"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "mnx": {"chat_id": "c1", "subject_id": "s1"},
+        }
+        mock_resp = _mock_response(json_body=body)
+
+        with patch.object(mnx._http_client, "request", return_value=mock_resp) as mock_req:
+            mnx.chat.completions.create(
+                ChatCompletionOptions(
+                    model="gpt-4o-mini",
+                    messages=[ChatMessage(role="user", content="Hi")],
+                    memory_policy="mpol_123",
+                )
+            )
+
+            call_args = mock_req.call_args
+            json_body = call_args[1].get("json", {})
+            assert json_body.get("mnx", {}).get("memory_policy") == "mpol_123"
+            headers = call_args[1].get("headers", {})
+            assert headers.get("x-mnx-memory-policy") == "mpol_123"
+
+    def test_chat_completions_stream_false_memory_policy_sets_false_header_and_body(self):
+        mnx = Mnexium(api_key="test-key", max_retries=0)
+        mock_resp = _mock_streaming_response(
+            chunks=["data: [DONE]\\n\\n"],
+            headers={"x-mnx-chat-id": "c1", "x-mnx-subject-id": "s1"},
+        )
+
+        with patch.object(mnx._http_client, "build_request") as mock_build, patch.object(
+            mnx._http_client, "send", return_value=mock_resp
+        ):
+            mnx.chat.completions.create(
+                ChatCompletionOptions(
+                    model="gpt-4o-mini",
+                    messages=[ChatMessage(role="user", content="Hi")],
+                    stream=True,
+                    memory_policy=False,
+                )
+            )
+
+            _, kwargs = mock_build.call_args
+            json_body = kwargs.get("json", {})
+            assert json_body.get("mnx", {}).get("memory_policy") is False
+            headers = kwargs.get("headers", {})
+            assert headers.get("x-mnx-memory-policy") == "false"
 
 
 # ---------------------------------------------------------------

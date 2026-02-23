@@ -95,6 +95,11 @@ class Chat:
             ),
             stream=opts.stream,
             metadata=opts.metadata if opts.metadata is not None else self._options.metadata,
+            memory_policy=(
+                opts.memory_policy
+                if opts.memory_policy is not None
+                else self._options.memory_policy
+            ),
             regenerate_key=opts.regenerate_key,
             records=opts.records,
         ))

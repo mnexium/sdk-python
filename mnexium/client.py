@@ -56,6 +56,27 @@ def _as_list(value: Any) -> List[Any]:
     return value if isinstance(value, list) else []
 
 
+def _normalize_memory_policy(value: Optional[Union[str, bool]]) -> Optional[Union[str, bool]]:
+    if value is False:
+        return False
+    if isinstance(value, str):
+        policy_id = value.strip()
+        if policy_id:
+            return policy_id
+    return None
+
+
+def _apply_memory_policy_header(
+    headers: Dict[str, str],
+    memory_policy: Optional[Union[str, bool]],
+) -> None:
+    normalized = _normalize_memory_policy(memory_policy)
+    if normalized is False:
+        headers["x-mnx-memory-policy"] = "false"
+    elif isinstance(normalized, str):
+        headers["x-mnx-memory-policy"] = normalized
+
+
 def _parse_chat_completion_response(raw: Dict[str, Any]) -> ChatCompletionResponse:
     choices: List[ChatCompletionChoice] = []
     raw_choices = _as_list(raw.get("choices"))
@@ -155,6 +176,7 @@ class Mnexium:
             subject_id=d.subject_id,
             chat_id=d.chat_id,
             metadata=d.metadata,
+            memory_policy=d.memory_policy,
             max_tokens=d.max_tokens,
             temperature=d.temperature,
             regenerate_key=d.regenerate_key,
@@ -234,6 +256,9 @@ class Mnexium:
         summarize = _val(options.summarize, self._defaults.summarize, False)
         system_prompt = _val(options.system_prompt, self._defaults.system_prompt, True)
         metadata = options.metadata or self._defaults.metadata
+        memory_policy = _normalize_memory_policy(
+            _val(options.memory_policy, self._defaults.memory_policy)
+        )
         max_tokens = _val(options.max_tokens, self._defaults.max_tokens)
         temperature = options.temperature if options.temperature is not None else self._defaults.temperature
         regenerate_key = _val(options.regenerate_key, self._defaults.regenerate_key, False)
@@ -253,6 +278,8 @@ class Mnexium:
         elif self._google_config:
             extra_headers["x-google-key"] = self._google_config.api_key
 
+        _apply_memory_policy_header(extra_headers, memory_policy)
+
         body: Dict[str, Any] = {
             "model": model,
             "messages": [{"role": "user", "content": options.content}],
@@ -268,6 +295,7 @@ class Mnexium:
                 "summarize": summarize,
                 "system_prompt": system_prompt,
                 "metadata": metadata,
+                **({"memory_policy": memory_policy} if memory_policy is not None else {}),
                 "regenerate_key": regenerate_key,
                 **({"records": {
                     k: v for k, v in {
@@ -576,6 +604,9 @@ class _ChatCompletionsResource:
         elif options.google_key:
             headers["x-google-key"] = options.google_key
 
+        memory_policy = _normalize_memory_policy(options.memory_policy)
+        _apply_memory_policy_header(headers, memory_policy)
+
         body: Dict[str, Any] = {
             "model": options.model,
             "messages": [
@@ -594,6 +625,7 @@ class _ChatCompletionsResource:
                     "log": options.log,
                     "system_prompt": options.system_prompt,
                     "metadata": options.metadata,
+                    "memory_policy": memory_policy,
                     "regenerate_key": options.regenerate_key,
                     **(
                         {
