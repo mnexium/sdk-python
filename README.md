@@ -353,6 +353,64 @@ hits = mnx.records.search("deal", "enterprise renewal", limit=5)
 mnx.records.delete("deal", deal["record_id"])
 ```
 
+### Integrations
+
+Manage inbound pull and webhook connectors that map external payloads into prompt-ready keys:
+
+```python
+from mnexium import (
+    IntegrationCreateOptions,
+    IntegrationExecutionOptions,
+    IntegrationOutputMapEntry,
+    IntegrationWebhookOptions,
+)
+
+# Create a pull integration
+integration = mnx.integrations.create(
+    IntegrationCreateOptions(
+        name="Weather Forecast",
+        mode="pull",
+        scope="project",
+        endpoint_url="https://api.open-meteo.com/v1/forecast",
+        method="GET",
+        allow_live_fetch=True,
+        cache_ttl_seconds=300,
+        query_template={
+            "latitude": "40.7128",
+            "longitude": "-74.0060",
+            "current": "temperature_2m,wind_speed_10m",
+        },
+        output_map=[
+            IntegrationOutputMapEntry(key="weather_temp", path="current.temperature_2m"),
+            IntegrationOutputMapEntry(key="weather_wind", path="current.wind_speed_10m"),
+        ],
+    )
+)
+
+# List / inspect / update / disable
+integrations = mnx.integrations.list()
+same_integration = mnx.integrations.get(integration["integration_id"])
+mnx.integrations.update(integration["integration_id"], {"cache_ttl_seconds": 600})
+mnx.integrations.delete(integration["integration_id"])
+
+# Execute a dry run or refresh cache
+preview = mnx.integrations.test(integration["integration_id"])
+refreshed = mnx.integrations.sync(
+    integration["integration_id"],
+    IntegrationExecutionOptions(subject_id="user_123", chat_id="chat_456"),
+)
+
+# Send a signed webhook payload
+mnx.integrations.webhook(
+    integration["integration_id"],
+    {"current": {"temperature_2m": 14.1, "wind_speed_10m": 13.8}},
+    IntegrationWebhookOptions(secret="whsec_...", event_id="evt_123"),
+)
+
+print(preview["values"]["weather_temp"])
+print(refreshed["cache_written"])
+```
+
 ## Configuration
 
 ```python

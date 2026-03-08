@@ -527,6 +527,145 @@ class RecordSearchResult(MnxRecord):
 
 
 # ============================================================
+# Integrations
+# ============================================================
+
+
+IntegrationMode = Literal["pull", "webhook", "both"]
+IntegrationScope = Literal["project", "subject", "chat"]
+IntegrationMethod = Literal["GET", "POST", "PUT", "PATCH"]
+IntegrationAuthType = Literal["none", "bearer", "api_key_header", "basic"]
+
+
+@dataclass
+class IntegrationOutputMapEntry:
+    key: str
+    path: str
+    default: Optional[str] = None
+
+
+@dataclass
+class Integration:
+    integration_id: str
+    project_id: str
+    name: str
+    description: str
+    is_active: bool
+    mode: IntegrationMode
+    scope: IntegrationScope
+    endpoint_url: str
+    method: IntegrationMethod
+    timeout_ms: int
+    cache_ttl_seconds: int
+    allow_live_fetch: bool
+    headers_template: Dict[str, Any] = field(default_factory=dict)
+    query_template: Dict[str, Any] = field(default_factory=dict)
+    body_template: Dict[str, Any] = field(default_factory=dict)
+    output_map: List[IntegrationOutputMapEntry] = field(default_factory=list)
+    auth_config: Dict[str, Any] = field(default_factory=dict)
+    created_at: str = ""
+    updated_at: str = ""
+    has_auth_secret: bool = False
+    has_webhook_secret: bool = False
+
+
+@dataclass
+class IntegrationListOptions:
+    include_inactive: Optional[bool] = None
+
+
+@dataclass
+class IntegrationCreateOptions:
+    name: str
+    mode: IntegrationMode
+    output_map: List[IntegrationOutputMapEntry]
+    integration_id: Optional[str] = None
+    description: Optional[str] = None
+    scope: Optional[IntegrationScope] = None
+    endpoint_url: Optional[str] = None
+    method: Optional[IntegrationMethod] = None
+    timeout_ms: Optional[int] = None
+    cache_ttl_seconds: Optional[int] = None
+    allow_live_fetch: Optional[bool] = None
+    headers_template: Optional[Dict[str, Any]] = None
+    query_template: Optional[Dict[str, Any]] = None
+    body_template: Optional[Dict[str, Any]] = None
+    auth_config: Optional[Dict[str, Any]] = None
+    auth_type: Optional[IntegrationAuthType] = None
+    auth_secret: Optional[str] = None
+    webhook_secret: Optional[str] = None
+
+
+@dataclass
+class IntegrationUpdateOptions:
+    name: Optional[str] = None
+    description: Optional[str] = None
+    mode: Optional[IntegrationMode] = None
+    scope: Optional[IntegrationScope] = None
+    endpoint_url: Optional[str] = None
+    method: Optional[IntegrationMethod] = None
+    timeout_ms: Optional[int] = None
+    cache_ttl_seconds: Optional[int] = None
+    allow_live_fetch: Optional[bool] = None
+    headers_template: Optional[Dict[str, Any]] = None
+    query_template: Optional[Dict[str, Any]] = None
+    body_template: Optional[Dict[str, Any]] = None
+    output_map: Optional[List[IntegrationOutputMapEntry]] = None
+    auth_config: Optional[Dict[str, Any]] = None
+    auth_type: Optional[IntegrationAuthType] = None
+    auth_secret: Optional[str] = None
+    webhook_secret: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+@dataclass
+class IntegrationExecutionOptions:
+    subject_id: Optional[str] = None
+    chat_id: Optional[str] = None
+
+
+@dataclass
+class IntegrationExecutionResult:
+    ok: bool
+    reason: str
+    values: Dict[str, Any] = field(default_factory=dict)
+    latency_ms: int = 0
+    integration_id: str = ""
+    scope: Optional[IntegrationScope] = None
+    cache_written: bool = False
+
+
+@dataclass
+class IntegrationWebhookSignature:
+    timestamp: str
+    signature: str
+    raw_body: str
+
+
+@dataclass
+class IntegrationWebhookOptions:
+    secret: Optional[str] = None
+    timestamp: Optional[Union[str, int]] = None
+    signature: Optional[str] = None
+    event_id: Optional[str] = None
+    project_id: Optional[str] = None
+    subject_id: Optional[str] = None
+    chat_id: Optional[str] = None
+    content_type: Optional[str] = None
+    headers: Optional[Dict[str, str]] = None
+
+
+@dataclass
+class IntegrationWebhookResult:
+    ok: bool
+    deduplicated: bool
+    integration_id: str
+    values: Optional[Dict[str, Any]] = None
+    keys_written: Optional[List[str]] = None
+    latency_ms: Optional[int] = None
+
+
+# ============================================================
 # Stream types
 # ============================================================
 

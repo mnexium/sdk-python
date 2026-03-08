@@ -2,6 +2,8 @@
 Tests for Mnexium Python SDK — covers the same fixes as the JS SDK tests.
 """
 
+import hashlib
+import hmac
 import json
 from unittest.mock import MagicMock, patch
 
@@ -16,6 +18,10 @@ from mnexium.types import (
     ProcessOptions,
     MemorySearchOptions,
     AgentStateSetOptions,
+    IntegrationCreateOptions,
+    IntegrationExecutionOptions,
+    IntegrationOutputMapEntry,
+    IntegrationWebhookOptions,
 )
 
 
@@ -453,3 +459,99 @@ class TestErrorHandling:
             with pytest.raises(Exception):
                 mnx.memories.get("mem_bad")
             assert mock_req.call_count == 1
+
+
+class TestIntegrationsResource:
+    def test_list_uses_include_inactive_query(self):
+        mnx = Mnexium(api_key="test-key", max_retries=0)
+        mock_resp = _mock_response(
+            json_body={"integrations": [{"integration_id": "int_weather", "name": "Weather"}]}
+        )
+
+        with patch.object(mnx._http_client, "request", return_value=mock_resp) as mock_req:
+            result = mnx.integrations.list()
+            assert result[0]["integration_id"] == "int_weather"
+
+            _, kwargs = mock_req.call_args
+            assert kwargs.get("params", {}) == {}
+
+    def test_create_serializes_snake_case_fields(self):
+        mnx = Mnexium(api_key="test-key", max_retries=0)
+        mock_resp = _mock_response(
+            json_body={"ok": True, "integration": {"integration_id": "int_weather", "name": "Weather"}}
+        )
+
+        with patch.object(mnx._http_client, "request", return_value=mock_resp) as mock_req:
+            mnx.integrations.create(
+                IntegrationCreateOptions(
+                    name="Weather",
+                    mode="pull",
+                    endpoint_url="https://api.open-meteo.com/v1/forecast",
+                    allow_live_fetch=True,
+                    output_map=[IntegrationOutputMapEntry(key="weather_temp", path="current.temperature_2m")],
+                )
+            )
+
+            _, kwargs = mock_req.call_args
+            json_body = kwargs.get("json", {})
+            assert json_body["endpoint_url"] == "https://api.open-meteo.com/v1/forecast"
+            assert json_body["allow_live_fetch"] is True
+            assert json_body["output_map"] == [{"key": "weather_temp", "path": "current.temperature_2m"}]
+
+    def test_test_unwraps_result_payload(self):
+        mnx = Mnexium(api_key="test-key", max_retries=0)
+        mock_resp = _mock_response(
+            json_body={
+                "ok": True,
+                "result": {
+                    "ok": True,
+                    "reason": "test",
+                    "values": {"weather_temp": 14.1},
+                    "latency_ms": 123,
+                    "integration_id": "int_weather",
+                    "scope": "project",
+                    "cache_written": False,
+                },
+            }
+        )
+
+        with patch.object(mnx._http_client, "request", return_value=mock_resp) as mock_req:
+            result = mnx.integrations.test(
+                "int_weather",
+                IntegrationExecutionOptions(subject_id="subj_1", chat_id="chat_1"),
+            )
+
+            assert result["values"]["weather_temp"] == 14.1
+            _, kwargs = mock_req.call_args
+            assert kwargs.get("json", {}) == {"subject_id": "subj_1", "chat_id": "chat_1"}
+
+    def test_webhook_signs_payload_with_secret(self):
+        mnx = Mnexium(api_key="test-key", max_retries=0)
+        payload = {"current": {"temperature_2m": 14.1}}
+        mock_resp = _mock_response(
+            json_body={
+                "ok": True,
+                "deduplicated": False,
+                "integration_id": "int_weather",
+                "values": {"weather_temp": 14.1},
+            }
+        )
+
+        with patch.object(mnx._http_client, "request", return_value=mock_resp) as mock_req:
+            mnx.integrations.webhook(
+                "int_weather",
+                payload,
+                IntegrationWebhookOptions(secret="whsec_test", timestamp=1733852431, event_id="evt_123"),
+            )
+
+            _, kwargs = mock_req.call_args
+            expected = hmac.new(
+                b"whsec_test",
+                f"1733852431.{json.dumps(payload)}".encode("utf-8"),
+                hashlib.sha256,
+            ).hexdigest()
+            headers = kwargs.get("headers", {})
+            assert headers["x-mnx-webhook-timestamp"] == "1733852431"
+            assert headers["x-mnx-webhook-signature"] == expected
+            assert headers["x-event-id"] == "evt_123"
+            assert kwargs.get("json") == payload

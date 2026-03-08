@@ -4,6 +4,9 @@ Mnexium SDK Client
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import time
 import uuid
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
@@ -28,6 +31,13 @@ from .types import (
     MemorySearchOptions,
     ClaimCreateOptions,
     AgentStateSetOptions,
+    IntegrationCreateOptions,
+    IntegrationExecutionOptions,
+    IntegrationListOptions,
+    IntegrationOutputMapEntry,
+    IntegrationUpdateOptions,
+    IntegrationWebhookOptions,
+    IntegrationWebhookSignature,
 )
 from .errors import (
     MnexiumError,
@@ -99,6 +109,89 @@ def _build_records_payload(records: Any) -> Optional[Dict[str, Any]]:
         }.items()
         if value is not None
     }
+    return payload
+
+
+def _normalize_signature(signature: Optional[str]) -> Optional[str]:
+    value = str(signature or "").strip()
+    if not value:
+        return None
+    if value.lower().startswith("sha256="):
+        value = value.split("=", 1)[1]
+    return value.lower()
+
+
+def _integration_output_map_to_payload(rows: List[Any]) -> List[Dict[str, Any]]:
+    payload: List[Dict[str, Any]] = []
+    for row in rows:
+        if isinstance(row, IntegrationOutputMapEntry):
+            item = {"key": row.key, "path": row.path}
+            if row.default is not None:
+                item["default"] = row.default
+            payload.append(item)
+        elif isinstance(row, dict):
+            item = {"key": row.get("key"), "path": row.get("path")}
+            if row.get("default") is not None:
+                item["default"] = row.get("default")
+            payload.append(item)
+    return payload
+
+
+def _integration_options_to_payload(options: Any) -> Dict[str, Any]:
+    if isinstance(options, dict):
+        source = options
+    else:
+        source = {
+            "integration_id": getattr(options, "integration_id", None),
+            "name": getattr(options, "name", None),
+            "description": getattr(options, "description", None),
+            "mode": getattr(options, "mode", None),
+            "scope": getattr(options, "scope", None),
+            "endpoint_url": getattr(options, "endpoint_url", None),
+            "method": getattr(options, "method", None),
+            "timeout_ms": getattr(options, "timeout_ms", None),
+            "cache_ttl_seconds": getattr(options, "cache_ttl_seconds", None),
+            "allow_live_fetch": getattr(options, "allow_live_fetch", None),
+            "headers_template": getattr(options, "headers_template", None),
+            "query_template": getattr(options, "query_template", None),
+            "body_template": getattr(options, "body_template", None),
+            "output_map": getattr(options, "output_map", None),
+            "auth_config": getattr(options, "auth_config", None),
+            "auth_type": getattr(options, "auth_type", None),
+            "auth_secret": getattr(options, "auth_secret", None),
+            "webhook_secret": getattr(options, "webhook_secret", None),
+            "is_active": getattr(options, "is_active", None),
+        }
+
+    payload: Dict[str, Any] = {}
+    for key in (
+        "integration_id",
+        "name",
+        "description",
+        "mode",
+        "scope",
+        "endpoint_url",
+        "method",
+        "timeout_ms",
+        "cache_ttl_seconds",
+        "allow_live_fetch",
+        "headers_template",
+        "query_template",
+        "body_template",
+        "auth_config",
+        "auth_type",
+        "auth_secret",
+        "webhook_secret",
+        "is_active",
+    ):
+        value = source.get(key)
+        if value is not None:
+            payload[key] = value
+
+    output_map = source.get("output_map")
+    if output_map is not None:
+        payload["output_map"] = _integration_output_map_to_payload(output_map)
+
     return payload
 
 
@@ -216,6 +309,7 @@ class Mnexium:
         self.state = _StateResource(self)
         self.prompts = _PromptsResource(self)
         self.records = _RecordsResource(self)
+        self.integrations = _IntegrationsResource(self)
 
     def close(self) -> None:
         """Close the underlying HTTP client and release network resources."""
@@ -1045,4 +1139,145 @@ class _PromptsResource:
                 "chat_id": chat_id,
                 "combined": combined,
             },
+        )
+
+
+class _IntegrationsResource:
+    """Integration management and execution helpers."""
+
+    def __init__(self, client: Mnexium) -> None:
+        self._client = client
+
+    def list(self, options: Optional[IntegrationListOptions] = None) -> List[Any]:
+        response = self._client._request(
+            "GET",
+            "/integrations",
+            params={
+                "include_inactive": options.include_inactive if options else None,
+            },
+        )
+        data = _as_dict(response)
+        return _as_list(data.get("integrations") or data.get("data"))
+
+    def create(self, options: IntegrationCreateOptions) -> Any:
+        response = self._client._request(
+            "POST",
+            "/integrations",
+            json=_integration_options_to_payload(options),
+        )
+        data = _as_dict(response)
+        return data.get("integration") or data
+
+    def get(self, integration_id: str) -> Optional[Any]:
+        try:
+            response = self._client._request("GET", f"/integrations/{integration_id}")
+        except NotFoundError:
+            return None
+        data = _as_dict(response)
+        return data.get("integration") or data
+
+    def update(self, integration_id: str, options: IntegrationUpdateOptions) -> Any:
+        response = self._client._request(
+            "PATCH",
+            f"/integrations/{integration_id}",
+            json=_integration_options_to_payload(options),
+        )
+        data = _as_dict(response)
+        return data.get("integration") or data
+
+    def delete(self, integration_id: str) -> None:
+        self._client._request("DELETE", f"/integrations/{integration_id}")
+
+    def test(
+        self,
+        integration_id: str,
+        options: Optional[IntegrationExecutionOptions] = None,
+    ) -> Any:
+        response = self._client._request(
+            "POST",
+            f"/integrations/{integration_id}/test",
+            json={
+                "subject_id": getattr(options, "subject_id", None),
+                "chat_id": getattr(options, "chat_id", None),
+            },
+        )
+        data = _as_dict(response)
+        return data.get("result") or data
+
+    def sync(
+        self,
+        integration_id: str,
+        options: Optional[IntegrationExecutionOptions] = None,
+    ) -> Any:
+        response = self._client._request(
+            "POST",
+            f"/integrations/{integration_id}/sync",
+            json={
+                "subject_id": getattr(options, "subject_id", None),
+                "chat_id": getattr(options, "chat_id", None),
+            },
+        )
+        data = _as_dict(response)
+        return data.get("result") or data
+
+    def sign_webhook(
+        self,
+        payload: Any,
+        *,
+        secret: Optional[str] = None,
+        timestamp: Optional[Union[str, int]] = None,
+        signature: Optional[str] = None,
+    ) -> IntegrationWebhookSignature:
+        raw_body = json.dumps(payload if payload is not None else {})
+        resolved_timestamp = str(timestamp if timestamp is not None else int(time.time()))
+        normalized_signature = _normalize_signature(signature)
+        if normalized_signature is None and secret:
+            normalized_signature = hmac.new(
+                str(secret).encode("utf-8"),
+                f"{resolved_timestamp}.{raw_body}".encode("utf-8"),
+                hashlib.sha256,
+            ).hexdigest()
+        if normalized_signature is None:
+            raise ValueError("integration_webhook_signature_required")
+        return IntegrationWebhookSignature(
+            timestamp=resolved_timestamp,
+            signature=normalized_signature,
+            raw_body=raw_body,
+        )
+
+    def webhook(
+        self,
+        integration_id: str,
+        payload: Any,
+        options: Optional[IntegrationWebhookOptions] = None,
+    ) -> Any:
+        opts = options or IntegrationWebhookOptions()
+        signed = self.sign_webhook(
+            payload,
+            secret=opts.secret,
+            timestamp=opts.timestamp,
+            signature=opts.signature,
+        )
+
+        headers: Dict[str, str] = {
+            "x-mnx-webhook-timestamp": signed.timestamp,
+            "x-mnx-webhook-signature": signed.signature,
+            "Content-Type": opts.content_type or "application/json",
+        }
+        if opts.headers:
+            headers.update(opts.headers)
+        if opts.event_id:
+            headers["x-event-id"] = opts.event_id
+        if opts.project_id:
+            headers["x-mnx-project-id"] = opts.project_id
+        if opts.subject_id:
+            headers["x-mnx-subject-id"] = opts.subject_id
+        if opts.chat_id:
+            headers["x-mnx-chat-id"] = opts.chat_id
+
+        return self._client._request(
+            "POST",
+            f"/integrations/{integration_id}/webhook",
+            json=payload if payload is not None else {},
+            headers=headers,
         )
